@@ -1,6 +1,6 @@
 ,Strategy,Total Return (%)
-0,Genetic Algorithm,10.46906296048926
-1,Markowitz,-1.5971694665398273
+0,Genetic Algorithm,10.469059355421306
+1,Markowitz,-1.5971705176526685
 2,IBOV,"Ticker
 ^BVSP   -8.268815
 Name: 2025-01-07 00:00:00, dtype: float64"
