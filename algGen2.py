@@ -1,15 +1,26 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+from tkcalendar import DateEntry
 import numpy as np
 import pandas as pd
-import multiprocessing
-import matplotlib.pyplot as plt
 import yfinance as yf
 from scipy.optimize import minimize
+import matplotlib.pyplot as plt
 
 # Risk-free rate (annualized)
-RISK_FREE_RATE = 0.05  # Exemplo: taxa livre de risco de 5% ao ano
+RISK_FREE_RATE = 0.05  # Example: 5% annual risk-free rate
+
+# Predefined list of assets (Brazilian stocks)
+STOCKS = [
+    'BPAC11.SA', 'EQTL3.SA', 'SUZB3.SA', 'PETR3.SA', 'B3SA3.SA', 'ITSA4.SA',
+    'ITUB4.SA', 'PRIO3.SA', 'VALE3.SA', 'WEGE3.SA', 'RDOR3.SA', 'BBAS3.SA',
+    'ENEV3.SA', 'JBSS3.SA', 'VBBR3.SA', 'ABEV3.SA', 'BBDC4.SA', 'UGPA3.SA',
+    'SBSP3.SA', 'EMBR3.SA', 'GGBR4.SA', 'RADL3.SA', 'ELET3.SA', 'CMIG4.SA',
+    'BBSE3.SA', 'RENT3.SA', 'RAIL3.SA'
+]
 
 
-# Função para calcular o fitness (Sharpe Ratio)
+# Function to calculate fitness (Sharpe Ratio)
 def fitness(weights, returns):
     portfolio_return = np.sum(returns.mean() * weights) * 252
     portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
@@ -17,55 +28,7 @@ def fitness(weights, returns):
     return sharpe_ratio
 
 
-# Inicializa a população para o Algoritmo Genético
-def initialize_population(n_individuals, n_assets):
-    return np.random.dirichlet(np.ones(n_assets), size=n_individuals)
-
-
-# Seleciona os melhores indivíduos com base no score de fitness
-def selection(population, returns, num_best=10):
-    scores = np.array([fitness(ind, returns) for ind in population])
-    best_indices = np.argsort(scores)[-num_best:]
-    return population[best_indices]
-
-
-# Realiza crossover entre dois pais para criar um filho
-def crossover(p1, p2):
-    alpha = np.random.uniform(0, 1, len(p1))
-    child = alpha * p1 + (1 - alpha) * p2
-    return child / np.sum(child)
-
-
-# Aplica mutação em um indivíduo com alterações limitadas
-def mutate(ind, mutation_rate=0.1):
-    if np.random.rand() < mutation_rate:
-        ind += np.random.normal(0, 0.1, len(ind))
-        ind = np.clip(ind, 0, None)  # Garante que não haja pesos negativos
-        ind /= np.sum(ind)  # Normaliza os pesos para somarem 1
-    return ind
-
-
-# Algoritmo Genético para otimização de portfólio
-def optimize_portfolio_genetic(returns, n_assets, n_individuals=100, generations=50):
-    population = initialize_population(n_individuals, n_assets)
-    for _ in range(generations):
-        top_individuals = selection(population, returns)
-        new_population = [mutate(crossover(top_individuals[np.random.randint(len(top_individuals))],
-                                           top_individuals[np.random.randint(len(top_individuals))])) for _ in
-                          range(n_individuals)]
-        population = np.array(new_population)
-    return selection(population, returns, num_best=1)[0]
-
-
-# Otimização paralela usando Algoritmo Genético
-def optimize_portfolio_parallel(returns, n_assets):
-    with multiprocessing.Pool(processes=4) as pool:
-        results = pool.starmap(optimize_portfolio_genetic,
-                               [(returns, n_assets, 100, 50) for _ in range(4)])
-    return max(results, key=lambda w: fitness(w, returns))
-
-
-# Otimização Markowitz usando o framework de média-variância
+# Markowitz optimization function
 def markowitz_optimization(returns):
     n_assets = returns.shape[1]
     result = minimize(lambda w: -fitness(w, returns),
@@ -76,98 +39,139 @@ def markowitz_optimization(returns):
     return result.x
 
 
-# Baixa os dados das ações do Yahoo Finance com tratamento de erros
-def download_stock_data():
-    stocks = ['ABEV3.SA', 'B3SA3.SA', 'BBSE3.SA', 'BBDC4.SA', 'BBAS3.SA', 'BPAC11.SA',
-              'CMIG4.SA', 'ELET3.SA', 'EMBR3.SA', 'ENEV3.SA', 'EQTL3.SA', 'GGBR4.SA',
-              'ITSA4.SA', 'ITUB4.SA', 'JBSS3.SA', 'RENT3.SA', 'PETR3.SA', 'PRIO3.SA',
-              'RADL3.SA', 'RDOR3.SA', 'RAIL3.SA', 'SBSP3.SA', 'SUZB3.SA', 'UGPA3.SA',
-              'VALE3.SA', 'VBBR3.SA', 'WEGE3.SA']
+# Download stock data from Yahoo Finance
+def download_stock_data(start_date, end_date):
+    valid_tickers = []
+    all_data = pd.DataFrame()
 
-    try:
-        data = yf.download(stocks, period='5y', progress=False)['Close']
-        return data.dropna()
-    except Exception as e:
-        print(f"Erro ao baixar dados das ações: {e}")
+    for ticker in STOCKS:
+        try:
+            data = yf.download(ticker, start=start_date, end=end_date, progress=False)['Close']
+            if not data.empty:
+                valid_tickers.append(ticker)
+                all_data[ticker] = data
+            else:
+                print(f"Warning: No data available for {ticker} (empty dataset).")
+        except Exception as e:
+            print(f"Error downloading data for {ticker}: {e}")
+
+    if all_data.empty:
+        messagebox.showerror("Error", "No valid stock data could be downloaded.")
         return None
 
-
-# Baixa os dados do índice IBOVESPA com tratamento de erros
-def download_ibov():
-    try:
-        ibov = yf.download('^BVSP', period='5y', progress=False)['Close']
-        return ibov.pct_change().dropna()
-    except Exception as e:
-        print(f"Erro ao baixar dados do IBOV: {e}")
-        return None
+    print(f"Successfully downloaded data for {len(valid_tickers)} tickers.")
+    return all_data
 
 
-# Plota os resultados com métricas adicionais de desempenho
+# Plot results and save the graph
 def plot_results(performance_df):
     plt.figure(figsize=(12, 6))
 
     for column in performance_df.columns:
         plt.plot(performance_df.index, performance_df[column], label=column)
 
-    plt.title('Desempenho do Portfólio vs IBOV')
-    plt.xlabel('Data')
-    plt.ylabel('Retorno Acumulado (%)')
+    plt.title('Portfolio Performance vs IBOV')
+    plt.xlabel('Date')
+    plt.ylabel('Cumulative Return (%)')
     plt.legend()
     plt.xticks(rotation=45)
     plt.tight_layout()
 
-    # Salva e exibe o gráfico
+    # Save and display the plot
     plt.savefig('portfolio_performance.png')
     plt.show()
 
 
-# Função principal para executar a análise
-def main():
-    np.random.seed(42)
+# Main function for portfolio optimization and evaluation
+def optimize_portfolio():
+    # Reset progress bar
+    progress['value'] = 0
 
-    # Baixa os dados das ações e do IBOVESPA
-    stock_data = download_stock_data()
+    # Get user inputs
+    start_date = start_date_entry.get_date()
+    end_date = end_date_entry.get_date()
+
+    # Validate inputs
+    if not start_date or not end_date:
+        messagebox.showwarning("Input Error", "Please select both start and end dates.")
+        return
+
+    # Adjust training period (252 days before the start date)
+    training_start_date = pd.to_datetime(start_date) - pd.Timedelta(days=365)
+
+    # Download stock data for training and evaluation periods
+    progress['value'] += 10
+    stock_data = download_stock_data(training_start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
 
     if stock_data is None:
-        print("Falha ao baixar os dados das ações. Encerrando.")
         return
 
-    ibov_returns = download_ibov()
+    # Split into training and evaluation periods
+    training_data = stock_data[:start_date]
+    evaluation_data = stock_data[start_date:end_date]
 
-    if ibov_returns is None:
-        print("Falha ao baixar os dados do IBOV. Encerrando.")
+    # Calculate daily returns for training and evaluation periods
+    training_returns = training_data.pct_change().dropna()
+    evaluation_returns = evaluation_data.pct_change().dropna()
+
+    # Optimize portfolio using Markowitz method on training data
+    progress['value'] += 30
+    markowitz_weights = markowitz_optimization(training_returns)
+
+    # Evaluate portfolio performance during the evaluation period
+    progress['value'] += 30
+    markowitz_performance = (1 + (evaluation_returns @ markowitz_weights)).cumprod().squeeze() - 1
+
+    # Download IBOV data for comparison
+    ibov_data = \
+    yf.download('^BVSP', start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"), progress=False)[
+        'Close']
+
+    if ibov_data is None or ibov_data.empty:
+        messagebox.showwarning("Error", "Failed to download IBOV data.")
         return
 
-    # Calcula os retornos diários das ações
-    returns = stock_data.pct_change().dropna()
-
-    # Otimiza os portfólios usando Algoritmo Genético e Markowitz
-    genetic_weights = optimize_portfolio_parallel(returns, len(stock_data.columns))
-    markowitz_weights = markowitz_optimization(returns)
-
-    # Calcula o desempenho acumulado dos portfólios e do IBOVESPA
-    genetic_performance = (1 + (returns @ genetic_weights)).cumprod().squeeze() - 1
-    markowitz_performance = (1 + (returns @ markowitz_weights)).cumprod().squeeze() - 1
+    ibov_returns = ibov_data.pct_change().dropna()
     ibov_performance = (1 + ibov_returns).cumprod().squeeze() - 1
 
-    # Cria um DataFrame para comparar o desempenho dos portfólios
+    # Create a DataFrame for performance comparison
     performance_df = pd.DataFrame({
-        'Algoritmo Genético': genetic_performance,
         'Markowitz': markowitz_performance,
-        'IBOV': ibov_performance
+        'IBOV': ibov_performance[start_date:]
     })
 
-    # Salva os resultados em arquivos CSV
-    performance_df.to_csv('portfolio_performance.csv')
-
-    pd.DataFrame({
-        'Genetic': genetic_weights,
-        'Markowitz': markowitz_weights
-    }).to_csv('optimized_portfolios.csv', index=False)
-
-    # Plota os resultados
+    # Plot results and display table with weights and performance metrics
     plot_results(performance_df)
 
 
-if __name__ == "__main__":
-    main()
+# Create the Tkinter interface
+root = tk.Tk()
+root.title("Portfolio Optimization")
+root.geometry("800x600")
+
+tk.Label(root, text="Start Date:").pack(pady=5)
+start_date_entry = DateEntry(root, width=12, background='darkblue',
+                             foreground='white', borderwidth=2)
+start_date_entry.pack(pady=5)
+
+tk.Label(root, text="End Date:").pack(pady=5)
+end_date_entry = DateEntry(root, width=12, background='darkblue',
+                           foreground='white', borderwidth=2)
+end_date_entry.pack(pady=5)
+
+progress_label = tk.Label(root, text="Progress:")
+progress_label.pack(pady=10)
+
+progress = ttk.Progressbar(root, orient=tk.HORIZONTAL,
+                           length=300, mode='determinate')
+progress.pack(pady=10)
+
+optimize_button = tk.Button(root,
+                            text="Optimize Portfolio",
+                            command=optimize_portfolio)
+optimize_button.pack(pady=20)
+
+table_frame = tk.Frame(root)
+table_frame.pack(fill="both", expand=True)
+
+root.mainloop()
