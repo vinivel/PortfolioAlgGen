@@ -279,96 +279,129 @@ class PortfolioOptimizer:
 
     def plot_cumulative_returns(self, ax):
         """Plot cumulative returns comparison"""
-        markowitz_returns = self.test_data[self.selected_assets].pct_change().dot(self.markowitz_weights)
-        ga_returns = self.test_data[self.selected_assets].pct_change().dot(self.ga_weights)
-        ibov_returns = self.ibov_data.pct_change().reindex(markowitz_returns.index).fillna(0)
+        try:
+            markowitz_returns = self.test_data[self.selected_assets].pct_change().dot(self.markowitz_weights)
+            ga_returns = self.test_data[self.selected_assets].pct_change().dot(self.ga_weights)
+            ibov_returns = self.ibov_data.pct_change().reindex(markowitz_returns.index).fillna(0)
 
-        cum_markowitz = (1 + markowitz_returns).cumprod() - 1
-        cum_ga = (1 + ga_returns).cumprod() - 1
-        cum_ibov = (1 + ibov_returns).cumprod() - 1
+            cum_markowitz = (1 + markowitz_returns).cumprod() - 1
+            cum_ga = (1 + ga_returns).cumprod() - 1
+            cum_ibov = (1 + ibov_returns).cumprod() - 1
 
-        ax.plot(cum_markowitz.index, cum_markowitz, label='Markowitz')
-        ax.plot(cum_ga.index, cum_ga, label='Genetic Algorithm')
-        ax.plot(cum_ibov.index, cum_ibov, label='IBOV')
-        ax.set_title("Cumulative Returns Comparison")
-        ax.set_ylabel("Return")
-        ax.legend()
-        ax.grid(True)
+            ax.plot(cum_markowitz.index, cum_markowitz, label='Markowitz')
+            ax.plot(cum_ga.index, cum_ga, label='Genetic Algorithm')
+            ax.plot(cum_ibov.index, cum_ibov, label='IBOV')
+            ax.set_title("Cumulative Returns Comparison")
+            ax.set_ylabel("Return")
+            ax.legend()
+            ax.grid(True)
+        except Exception as e:
+            ax.text(0.5, 0.5, 'Error plotting cumulative returns', ha='center', va='center')
+            self.log_message(f"Plotting error: {str(e)}")
 
     def plot_drawdowns(self, ax):
         """Plot maximum drawdowns"""
-        markowitz_returns = self.test_data[self.selected_assets].pct_change().dot(self.markowitz_weights)
-        cum_returns = (1 + markowitz_returns).cumprod()
-        running_max = cum_returns.cummax()
-        drawdown = (cum_returns - running_max) / running_max
+        try:
+            markowitz_returns = self.test_data[self.selected_assets].pct_change().dot(self.markowitz_weights)
+            cum_returns = (1 + markowitz_returns).cumprod()
+            running_max = cum_returns.cummax()
+            drawdown = (cum_returns - running_max) / running_max
 
-        ax.fill_between(drawdown.index, drawdown, 0, alpha=0.3, color='red')
-        ax.plot(drawdown.index, drawdown, color='darkred', linewidth=1)
-        ax.set_title("Maximum Drawdown")
-        ax.set_ylabel("Drawdown")
-        ax.grid(True)
+            ax.fill_between(drawdown.index, drawdown, 0, alpha=0.3, color='red')
+            ax.plot(drawdown.index, drawdown, color='darkred', linewidth=1)
+            ax.set_title("Maximum Drawdown")
+            ax.set_ylabel("Drawdown")
+            ax.grid(True)
+        except Exception as e:
+            ax.text(0.5, 0.5, 'Error plotting drawdowns', ha='center', va='center')
+            self.log_message(f"Drawdown plot error: {str(e)}")
 
     def plot_efficient_frontier(self, ax):
         """Plot efficient frontier"""
-        returns, volatilities = self.calculate_efficient_frontier()
-        ax.plot(volatilities, returns, 'b-', linewidth=2)
-        ax.scatter(volatilities, returns, c=returns / volatilities, cmap='viridis', s=50)
-        ax.set_title("Efficient Frontier")
-        ax.set_xlabel("Annualized Volatility")
-        ax.set_ylabel("Annualized Return")
-        ax.grid(True)
+        try:
+            returns, volatilities = self.calculate_efficient_frontier()
+
+            # Validate and clean data
+            valid_points = (volatilities > 0) & (~np.isnan(volatilities)) & (~np.isnan(returns))
+            returns = returns[valid_points]
+            volatilities = volatilities[valid_points]
+
+            if len(returns) > 0:
+                ax.plot(volatilities, returns, 'b-', linewidth=2)
+                ax.scatter(volatilities, returns, c=returns / volatilities,
+                           cmap='viridis', s=50)
+                ax.set_title("Efficient Frontier")
+                ax.set_xlabel("Annualized Volatility")
+                ax.set_ylabel("Annualized Return")
+                ax.grid(True)
+            else:
+                ax.text(0.5, 0.5, 'No valid efficient frontier points',
+                        ha='center', va='center')
+                ax.set_title("Efficient Frontier (No Data)")
+        except Exception as e:
+            ax.text(0.5, 0.5, 'Error plotting efficient frontier', ha='center', va='center')
+            self.log_message(f"Efficient frontier error: {str(e)}")
 
     def calculate_efficient_frontier(self):
         """Calculate efficient frontier points"""
-        returns = self.training_data[self.selected_assets].pct_change().dropna()
-        cov_matrix = returns.cov().values * 252
-        expected_returns = returns.mean().values * 252
-        n = len(expected_returns)
-        ones = np.ones(n)
-        cov_inv = np.linalg.pinv(cov_matrix)
+        try:
+            returns = self.training_data[self.selected_assets].pct_change().dropna()
+            cov_matrix = returns.cov().values * 252
+            expected_returns = returns.mean().values * 252
+            n = len(expected_returns)
+            ones = np.ones(n)
+            cov_inv = np.linalg.pinv(cov_matrix)
 
-        target_returns = np.linspace(expected_returns.min(), expected_returns.max(), 50)
-        frontier_vol = []
-        frontier_ret = []
+            target_returns = np.linspace(expected_returns.min(), expected_returns.max(), 50)
+            frontier_vol = []
+            frontier_ret = []
 
-        for ret in target_returns:
-            try:
-                A = np.array([
-                    [expected_returns.T @ cov_inv @ expected_returns,
-                     expected_returns.T @ cov_inv @ ones],
-                    [expected_returns.T @ cov_inv @ ones,
-                     ones.T @ cov_inv @ ones]
-                ])
-                b = np.array([ret, 1])
+            for ret in target_returns:
+                try:
+                    A = np.array([
+                        [expected_returns.T @ cov_inv @ expected_returns,
+                         expected_returns.T @ cov_inv @ ones],
+                        [expected_returns.T @ cov_inv @ ones,
+                         ones.T @ cov_inv @ ones]
+                    ])
+                    b = np.array([ret, 1])
 
-                x = np.linalg.lstsq(A, b, rcond=None)[0]
-                lambda1, lambda2 = x
+                    x = np.linalg.lstsq(A, b, rcond=None)[0]
+                    lambda1, lambda2 = x
 
-                weights = (lambda1 * (cov_inv @ expected_returns) +
-                           lambda2 * (cov_inv @ ones))
-                weights /= weights.sum()
+                    weights = (lambda1 * (cov_inv @ expected_returns) +
+                               lambda2 * (cov_inv @ ones))
+                    weights /= weights.sum()
 
-                vol = np.sqrt(weights.T @ cov_matrix @ weights)
-                frontier_vol.append(vol)
-                frontier_ret.append(ret)
-            except:
-                continue
+                    vol = np.sqrt(weights.T @ cov_matrix @ weights)
+                    frontier_vol.append(vol)
+                    frontier_ret.append(ret)
+                except Exception as e:
+                    self.log_message(f"Skipping frontier point: {str(e)}")
+                    continue
 
-        return frontier_ret, frontier_vol
+            return np.array(frontier_ret), np.array(frontier_vol)
+        except Exception as e:
+            self.log_message(f"Efficient frontier calculation failed: {str(e)}")
+            return np.array([]), np.array([])
 
     def plot_weight_comparison(self, ax):
         """Plot portfolio weight comparison"""
-        width = 0.35
-        x = np.arange(len(self.selected_assets))
+        try:
+            width = 0.35
+            x = np.arange(len(self.selected_assets))
 
-        ax.bar(x - width / 2, self.markowitz_weights, width, label='Markowitz', alpha=0.8)
-        ax.bar(x + width / 2, self.ga_weights, width, label='Genetic Algorithm', alpha=0.8)
+            ax.bar(x - width / 2, self.markowitz_weights, width, label='Markowitz', alpha=0.8)
+            ax.bar(x + width / 2, self.ga_weights, width, label='Genetic Algorithm', alpha=0.8)
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(self.selected_assets, rotation=45, ha='right')
-        ax.set_title("Portfolio Weight Comparison")
-        ax.legend()
-        ax.grid(True)
+            ax.set_xticks(x)
+            ax.set_xticklabels(self.selected_assets, rotation=45, ha='right')
+            ax.set_title("Portfolio Weight Comparison")
+            ax.legend()
+            ax.grid(True)
+        except Exception as e:
+            ax.text(0.5, 0.5, 'Error plotting weights', ha='center', va='center')
+            self.log_message(f"Weight plot error: {str(e)}")
 
 
 if __name__ == "__main__":
